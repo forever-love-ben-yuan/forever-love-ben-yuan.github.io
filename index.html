@@ -1,0 +1,115 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Benben & Yuanyuan's Home</title>
+    <!-- Use Tailwind CSS for quick, pretty styling -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- Supabase JS Client -->
+    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+    <link rel="stylesheet" href="style.css">
+    <!-- Google Fonts for a warmer feel -->
+    <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+SC:wght@300;400;500;700&display=swap" rel="stylesheet">
+</head>
+<body class="bg-stone-50 text-stone-700 font-sans antialiased">
+
+    <!-- LOGIN VIEW -->
+    <div id="login-view" class="min-h-screen flex items-center justify-center p-4">
+        <div class="bg-white p-8 rounded-2xl shadow-xl w-full max-w-sm border border-stone-100">
+            <h1 class="text-2xl font-bold text-center mb-2 text-rose-500">欢迎回家</h1>
+            <p class="text-center text-stone-400 text-sm mb-6">Benben & Yuanyuan</p>
+            
+            <form id="login-form" class="space-y-4">
+                <div>
+                    <label class="block text-sm font-medium text-stone-600 mb-1">用户名</label>
+                    <input type="text" id="username-input" class="w-full px-4 py-2 rounded-lg bg-stone-50 border border-stone-200 focus:outline-none focus:ring-2 focus:ring-rose-300" placeholder="benben / yuanyuan">
+                </div>
+                <div>
+                    <label class="block text-sm font-medium text-stone-600 mb-1">暗号</label>
+                    <input type="password" id="password-input" class="w-full px-4 py-2 rounded-lg bg-stone-50 border border-stone-200 focus:outline-none focus:ring-2 focus:ring-rose-300" placeholder="******">
+                </div>
+                <div id="login-error" class="text-red-500 text-xs hidden">用户名或暗号错误</div>
+                <button type="submit" class="w-full bg-rose-400 hover:bg-rose-500 text-white font-bold py-2 rounded-lg transition-colors">
+                    进入小屋
+                </button>
+            </form>
+        </div>
+    </div>
+
+    <!-- MAIN APP VIEW (Hidden by default) -->
+    <div id="main-view" class="hidden min-h-screen flex flex-col">
+        
+        <!-- Header -->
+        <header class="bg-white shadow-sm sticky top-0 z-10">
+            <div class="max-w-4xl mx-auto px-4 py-3 flex justify-between items-center">
+                <div class="font-bold text-rose-500 text-lg flex items-center gap-2">
+                    <span>🏠</span> 我们的家
+                </div>
+                <div class="flex items-center gap-3">
+                    <span id="user-name-display" class="text-sm font-medium text-stone-500"></span>
+                    <button id="back-to-home-btn" class="text-xs bg-stone-100 px-2 py-1 rounded text-stone-400 hover:text-stone-600 hidden">← 主页</button>
+                    <button id="logout-btn" class="text-xs bg-stone-100 px-2 py-1 rounded text-stone-400 hover:text-stone-600">退出</button>
+                </div>
+            </div>
+            <!-- Navigation Scrollable (隐藏导航栏，改用返回按钮) -->
+            <div class="border-t border-stone-100 bg-stone-50 hidden">
+                <nav id="nav-container" class="nav-scroll max-w-4xl mx-auto py-2 px-2">
+                    <!-- Nav items injected by JS -->
+                </nav>
+            </div>
+        </header>
+
+        <!-- Main Content -->
+        <main class="flex-grow max-w-2xl mx-auto w-full p-4 pb-24">
+            <div id="page-header" class="mb-4">
+                <h2 id="page-title" class="text-xl font-bold"></h2>
+                <p id="page-desc" class="text-sm text-stone-400"></p>
+            </div>
+            <div id="blocks-container"></div>
+            <button onclick="openAddBlockModal()" class="btn btn-secondary w-full py-3 mt-4 border-dashed text-stone-400">+ 添加新积木</button>
+        </main>
+        
+        <!-- Dock Bar -->
+        <div id="dock-bar" class="fixed bottom-0 left-0 right-0 bg-white/80 backdrop-blur-md border-t border-stone-200 z-20 safe-area-inset-bottom">
+            <div class="max-w-md mx-auto px-4 py-3 flex justify-center">
+                <button id="app-launcher-btn" class="dock-icon">
+                    <svg width="24" height="24" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+                        <rect x="3" y="3" width="6" height="6" rx="1" fill="currentColor"/>
+                        <rect x="11" y="3" width="6" height="6" rx="1" fill="currentColor"/>
+                        <rect x="19" y="3" width="6" height="6" rx="1" fill="currentColor"/>
+                        <rect x="3" y="11" width="6" height="6" rx="1" fill="currentColor"/>
+                        <rect x="11" y="11" width="6" height="6" rx="1" fill="currentColor"/>
+                        <rect x="19" y="11" width="6" height="6" rx="1" fill="currentColor"/>
+                        <rect x="3" y="19" width="6" height="6" rx="1" fill="currentColor"/>
+                        <rect x="11" y="19" width="6" height="6" rx="1" fill="currentColor"/>
+                        <rect x="19" y="19" width="6" height="6" rx="1" fill="currentColor"/>
+                    </svg>
+                </button>
+            </div>
+        </div>
+        
+        <!-- App Launcher Menu (弹出菜单) -->
+        <div id="app-launcher-menu" class="hidden fixed inset-0 z-30">
+            <!-- 背景遮罩 -->
+            <div class="absolute inset-0 bg-black/50 backdrop-blur-sm" onclick="closeAppLauncher()"></div>
+            <!-- 菜单内容 -->
+            <div class="absolute bottom-20 left-0 right-0 max-w-md mx-auto px-4 pb-4">
+                <div class="bg-white rounded-2xl shadow-2xl p-4 max-h-[70vh] overflow-y-auto">
+                    <div class="text-center mb-4">
+                        <h3 class="font-bold text-lg text-stone-800">所有功能</h3>
+                    </div>
+                    <div id="app-grid" class="grid grid-cols-3 gap-4">
+                        <!-- App items will be injected here -->
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Modal Container -->
+    <div id="modal-container" class="hidden"></div>
+
+    <script src="script.js"></script>
+</body>
+</html>
