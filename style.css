@@ -345,3 +345,19 @@
     opacity: 0;
     visibility: hidden;
   }
+  
+  /* Image Viewer */
+  #image-viewer {
+    animation: fadeIn 0.3s ease-out;
+  }
+  @keyframes fadeIn {
+    from { opacity: 0; }
+    to { opacity: 1; }
+  }
+  #image-viewer img {
+    user-select: none;
+    -webkit-user-drag: none;
+  }
+  .cursor-pointer {
+    cursor: pointer;
+  }
