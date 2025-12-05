@@ -40,7 +40,8 @@ const BLOCK_DEFINITIONS = {
   decision_tool: '🎲 小决断',
   playlist: '🎵 歌单',
   song_of_week: '🎶 本周主打',
-  outfit_card: '👗 穿搭记录'
+  outfit_card: '👗 穿搭记录',
+  photo_album: '📷 相册'
 };
 
 const PAGE_BLOCK_RULES = {
@@ -51,8 +52,7 @@ const PAGE_BLOCK_RULES = {
   goals: ['habit_tracker', 'challenge_tracker', 'tiny_goals'],
   messages: ['secret_note', 'praise_jar', 'gratitude_log'],
   fun: ['date_idea_generator', 'question_of_week', 'decision_tool'],
-  soundtrack: ['playlist', 'song_of_week'],
-  outfits: ['outfit_card']
+  outfits: ['outfit_card', 'photo_album']
 };
 
 // --- MOCK DATA ---
@@ -70,7 +70,6 @@ const MOCK_DATA = {
     { id: 'p5', key: 'goals', title: '🎯 目标', description: '一起变好' },
     { id: 'p6', key: 'messages', title: '💌 悄悄话', description: '只说给你听' },
     { id: 'p7', key: 'fun', title: '🎲 小玩法', description: '无聊时候玩一玩' },
-    { id: 'p8', key: 'soundtrack', title: '🎵 歌单', description: 'BGM' },
     { id: 'p9', key: 'outfits', title: '👗 穿搭', description: 'OOTD 日记' },
   ],
   blocks: [
@@ -231,6 +230,26 @@ const api = {
       method: 'DELETE',
       headers: this.getHeaders()
     });
+  },
+
+  async deletePage(id) {
+    if (state.isDemo) {
+      // 先删除该页面下的所有blocks
+      state.blocks = state.blocks.filter(b => b.page_id !== id);
+      // 然后删除页面
+      state.pages = state.pages.filter(p => p.id !== id);
+      return;
+    }
+    // 先删除该页面下的所有blocks
+    await fetch(`${SUPABASE_URL}/rest/v1/blocks?page_id=eq.${id}`, {
+      method: 'DELETE',
+      headers: this.getHeaders()
+    });
+    // 然后删除页面
+    await fetch(`${SUPABASE_URL}/rest/v1/pages?id=eq.${id}`, {
+      method: 'DELETE',
+      headers: this.getHeaders()
+    });
   }
 };
 
@@ -320,15 +339,59 @@ const BlockRenderers = {
   },
 
   outfit_card: (data) => {
+    const images = data.images || (data.image ? [data.image] : []);
     return el('div', {}, [
-      data.image ? el('div', { class: 'mb-2 rounded overflow-hidden', style: 'max-height: 300px;' }, [
-        el('img', { src: data.image, class: 'w-full h-full object-cover' })
+      images.length > 0 ? el('div', { class: 'mb-2' }, [
+        images.length === 1 ? 
+          el('div', { class: 'rounded overflow-hidden', style: 'max-height: 300px;' }, [
+            el('img', { src: images[0], class: 'w-full h-full object-cover' })
+          ]) :
+          el('div', { class: 'grid grid-cols-2 gap-2' }, 
+            images.slice(0, 4).map(img => 
+              el('div', { class: 'aspect-square rounded overflow-hidden' }, [
+                el('img', { src: img, class: 'w-full h-full object-cover' })
+              ])
+            ).concat(
+              images.length > 4 ? el('div', { class: 'aspect-square rounded bg-stone-100 flex items-center justify-center text-xs text-stone-400' }, `+${images.length - 4}`) : null
+            )
+          )
       ]) : null,
       el('div', { class: 'flex justify-between items-center mb-1' }, [
         el('span', { class: 'font-bold text-sm' }, data.date || ''),
         el('span', { class: 'text-xs text-stone-400 bg-stone-100 px-2 py-1 rounded' }, data.tags || 'OOTD')
       ]),
       el('p', { class: 'text-sm text-stone-600' }, data.note || '')
+    ]);
+  },
+  
+  photo_album: (data) => {
+    const photos = data.photos || [];
+    if (photos.length === 0) {
+      return el('div', { class: 'text-stone-400 italic text-sm text-center py-4' }, '相册为空，点击编辑添加照片');
+    }
+    
+    return el('div', {}, [
+      el('div', { class: 'flex justify-between items-center mb-3' }, [
+        el('h4', { class: 'font-bold' }, data.title || '我的相册'),
+        photos.length > 0 ? el('span', { class: 'text-xs text-stone-400' }, `${photos.length} 张照片`) : null
+      ]),
+      el('div', { class: 'grid grid-cols-3 gap-2' }, 
+        photos.map((photo, index) => 
+          el('div', { 
+            class: 'aspect-square rounded overflow-hidden bg-stone-100',
+            onclick: () => {
+              // 点击查看大图（可以后续扩展）
+            }
+          }, [
+            el('img', { 
+              src: photo.url || photo, 
+              class: 'w-full h-full object-cover',
+              onerror: function() { this.style.display = 'none'; }
+            })
+          ])
+        )
+      ),
+      data.description ? el('p', { class: 'text-sm text-stone-600 mt-3' }, data.description) : null
     ]);
   },
 
@@ -395,6 +458,42 @@ const BlockRenderers = {
     ]);
   },
 
+  playlist: (data) => {
+    const songs = data.songs || [];
+    if (songs.length === 0) {
+      return el('div', { class: 'text-stone-400 italic text-sm text-center py-4' }, '歌单为空，点击编辑添加歌曲');
+    }
+    
+    return el('div', {}, [
+      el('h4', { class: 'font-bold mb-3' }, data.title || '我的歌单'),
+      el('div', { class: 'space-y-2' }, 
+        songs.map((song, idx) => 
+          el('div', { class: 'p-3 bg-stone-50 rounded border border-stone-200' }, [
+            el('div', { class: 'font-medium text-sm' }, song.name || '未命名歌曲'),
+            song.artist ? el('div', { class: 'text-xs text-stone-400 mt-1' }, `🎤 ${song.artist}`) : null
+          ])
+        )
+      )
+    ]);
+  },
+
+  song_of_week: (data) => {
+    return el('div', {}, [
+      el('div', { class: 'text-center mb-3' }, [
+        el('div', { class: 'text-2xl mb-2' }, '🎵'),
+        el('h4', { class: 'font-bold text-lg' }, data.name || '未命名歌曲'),
+        data.artist ? el('div', { class: 'text-sm text-stone-400 mt-1' }, `🎤 ${data.artist}`) : null
+      ]),
+      data.reason ? el('div', { class: 'text-sm text-stone-600 bg-stone-50 p-3 rounded mt-3' }, data.reason) : null,
+      data.link ? el('a', { 
+        href: data.link, 
+        target: '_blank', 
+        class: 'text-xs text-rose-500 mt-2 inline-block',
+        onclick: (e) => e.stopPropagation()
+      }, '🔗 打开链接') : null
+    ]);
+  },
+
   default: (data) => {
     const keys = Object.keys(data);
     if(keys.length === 0) return el('div', {class: 'text-stone-400 italic text-sm'}, '空内容');
@@ -445,67 +544,101 @@ const EditForms = {
     el('div', { class: 'form-group' }, [el('label', { class: 'form-label' }, '隐藏内容'), el('textarea', { class: 'input', rows: 3, value: data.content || '', oninput: (e) => onChange({...data, content: e.target.value}) })])
   ]),
   outfit_card: (data, onChange) => {
-    // 处理文件上传
+    // 处理多文件上传
     const handleFileUpload = (e) => {
-      const file = e.target.files[0];
-      if (!file) return;
+      const files = Array.from(e.target.files || []);
+      if (files.length === 0) return;
       
-      // 检查文件类型
-      if (!file.type.startsWith('image/')) {
-        alert('请选择图片文件');
-        return;
+      const validFiles = [];
+      const errors = [];
+      
+      files.forEach((file, index) => {
+        // 检查文件类型
+        if (!file.type.startsWith('image/')) {
+          errors.push(`文件 ${index + 1} 不是图片格式`);
+          return;
+        }
+        
+        // 检查文件大小（限制为 5MB）
+        if (file.size > 5 * 1024 * 1024) {
+          errors.push(`文件 ${index + 1} 超过 5MB`);
+          return;
+        }
+        
+        validFiles.push(file);
+      });
+      
+      if (errors.length > 0) {
+        alert('部分文件有问题：\n' + errors.join('\n'));
       }
       
-      // 检查文件大小（限制为 5MB）
-      if (file.size > 5 * 1024 * 1024) {
-        alert('图片大小不能超过 5MB');
-        return;
-      }
+      if (validFiles.length === 0) return;
       
-      // 读取文件并转换为 base64
-      const reader = new FileReader();
-      reader.onload = (event) => {
-        const base64 = event.target.result;
-        onChange({...data, image: base64});
-      };
-      reader.onerror = () => {
-        alert('图片读取失败，请重试');
-      };
-      reader.readAsDataURL(file);
+      // 读取所有文件
+      let loadedCount = 0;
+      const images = data.images || (data.image ? [data.image] : []);
+      
+      validFiles.forEach(file => {
+        const reader = new FileReader();
+        reader.onload = (event) => {
+          const base64 = event.target.result;
+          images.push(base64);
+          loadedCount++;
+          
+          if (loadedCount === validFiles.length) {
+            const newData = {...data, images: images, image: images[0]}; // 保持兼容性
+            onChange(newData);
+            const container = document.getElementById('edit-form-container');
+            if (container && container.onChangeWithRerender) {
+              container.onChangeWithRerender(newData);
+            }
+          }
+        };
+        reader.onerror = () => {
+          alert(`图片 ${file.name} 读取失败`);
+        };
+        reader.readAsDataURL(file);
+      });
     };
     
     // 图片预览容器
+    const images = data.images || (data.image ? [data.image] : []);
     const previewContainer = el('div', { class: 'form-group' }, [
-      el('label', { class: 'form-label' }, '图片'),
+      el('label', { class: 'form-label' }, '图片（可多选）'),
       el('div', { class: 'flex flex-col gap-2' }, [
-        // 文件上传按钮
+        // 文件上传按钮（多选）
         el('input', { 
           type: 'file', 
           accept: 'image/*',
-          capture: 'environment', // 移动端优先使用后置摄像头
+          multiple: true, // 允许多选
           class: 'input text-sm',
           onchange: handleFileUpload
         }),
-        // 图片预览
-        data.image ? el('div', { class: 'mt-2' }, [
-          el('img', { 
-            src: data.image, 
-            class: 'max-w-full max-h-48 rounded border border-stone-200',
-            style: 'object-fit: contain;'
-          }),
-          el('button', {
-            type: 'button',
-            class: 'text-xs text-red-500 mt-1',
-            onclick: () => {
-              const newData = {...data, image: ''};
-              onChange(newData);
-              const container = document.getElementById('edit-form-container');
-              if (container && container.onChangeWithRerender) {
-                container.onChangeWithRerender(newData);
-              }
-            }
-          }, '删除图片')
-        ]) : null
+        el('p', { class: 'text-xs text-stone-400' }, '可以一次选择多张图片'),
+        // 图片预览网格
+        images.length > 0 ? el('div', { class: 'grid grid-cols-3 gap-2 mt-2' }, 
+          images.map((img, index) => 
+            el('div', { class: 'relative' }, [
+              el('img', { 
+                src: img, 
+                class: 'w-full aspect-square object-cover rounded border border-stone-200'
+              }),
+              el('button', {
+                type: 'button',
+                class: 'absolute top-1 right-1 bg-red-500 text-white rounded-full w-5 h-5 flex items-center justify-center text-xs',
+                onclick: () => {
+                  const newImages = images.filter((_, i) => i !== index);
+                  const newData = {...data, images: newImages, image: newImages[0] || ''};
+                  onChange(newData);
+                  const container = document.getElementById('edit-form-container');
+                  if (container && container.onChangeWithRerender) {
+                    container.onChangeWithRerender(newData);
+                  }
+                }
+              }, '×')
+            ])
+          )
+        ) : null
       ])
     ]);
     
@@ -593,6 +726,119 @@ const EditForms = {
       el('div', { class: 'form-group' }, [el('label', { class: 'form-label' }, '日期'), el('input', { class: 'input', type: 'date', value: data.date || '', oninput: (e) => onChange({...data, date: e.target.value}) })]),
       previewContainer,
       el('div', { class: 'form-group' }, [el('label', { class: 'form-label' }, '内容'), el('textarea', { class: 'input', rows: 2, value: data.content || '', oninput: (e) => onChange({...data, content: e.target.value}) })])
+    ]);
+  },
+  photo_album: (data, onChange) => {
+    // 处理多文件上传
+    const handleFileUpload = (e) => {
+      const files = Array.from(e.target.files || []);
+      if (files.length === 0) return;
+      
+      const validFiles = [];
+      const errors = [];
+      
+      files.forEach((file, index) => {
+        if (!file.type.startsWith('image/')) {
+          errors.push(`文件 ${index + 1} 不是图片格式`);
+          return;
+        }
+        if (file.size > 5 * 1024 * 1024) {
+          errors.push(`文件 ${index + 1} 超过 5MB`);
+          return;
+        }
+        validFiles.push(file);
+      });
+      
+      if (errors.length > 0) {
+        alert('部分文件有问题：\n' + errors.join('\n'));
+      }
+      
+      if (validFiles.length === 0) return;
+      
+      // 读取所有文件
+      let loadedCount = 0;
+      const photos = data.photos || [];
+      
+      validFiles.forEach(file => {
+        const reader = new FileReader();
+        reader.onload = (event) => {
+          const base64 = event.target.result;
+          photos.push({ url: base64, date: new Date().toISOString() });
+          loadedCount++;
+          
+          if (loadedCount === validFiles.length) {
+            const newData = {...data, photos: photos};
+            onChange(newData);
+            const container = document.getElementById('edit-form-container');
+            if (container && container.onChangeWithRerender) {
+              container.onChangeWithRerender(newData);
+            }
+          }
+        };
+        reader.onerror = () => {
+          alert(`图片 ${file.name} 读取失败`);
+        };
+        reader.readAsDataURL(file);
+      });
+    };
+    
+    const photos = data.photos || [];
+    const photoPreview = el('div', { class: 'form-group' }, [
+      el('label', { class: 'form-label' }, '照片（可多选）'),
+      el('div', { class: 'flex flex-col gap-2' }, [
+        el('input', { 
+          type: 'file', 
+          accept: 'image/*',
+          multiple: true,
+          class: 'input text-sm',
+          onchange: handleFileUpload
+        }),
+        el('p', { class: 'text-xs text-stone-400' }, '可以一次选择多张照片添加到相册'),
+        photos.length > 0 ? el('div', { class: 'grid grid-cols-3 gap-2 mt-2' }, 
+          photos.map((photo, index) => 
+            el('div', { class: 'relative' }, [
+              el('img', { 
+                src: photo.url || photo, 
+                class: 'w-full aspect-square object-cover rounded border border-stone-200'
+              }),
+              el('button', {
+                type: 'button',
+                class: 'absolute top-1 right-1 bg-red-500 text-white rounded-full w-5 h-5 flex items-center justify-center text-xs',
+                onclick: () => {
+                  const newPhotos = photos.filter((_, i) => i !== index);
+                  const newData = {...data, photos: newPhotos};
+                  onChange(newData);
+                  const container = document.getElementById('edit-form-container');
+                  if (container && container.onChangeWithRerender) {
+                    container.onChangeWithRerender(newData);
+                  }
+                }
+              }, '×')
+            ])
+          )
+        ) : null
+      ])
+    ]);
+    
+    return el('div', {}, [
+      el('div', { class: 'form-group' }, [
+        el('label', { class: 'form-label' }, '相册标题'),
+        el('input', { 
+          class: 'input', 
+          value: data.title || '', 
+          oninput: (e) => onChange({...data, title: e.target.value}) 
+        })
+      ]),
+      photoPreview,
+      el('div', { class: 'form-group' }, [
+        el('label', { class: 'form-label' }, '描述（可选）'),
+        el('textarea', { 
+          class: 'input', 
+          rows: 2, 
+          value: data.description || '', 
+          oninput: (e) => onChange({...data, description: e.target.value}) 
+        })
+      ])
     ]);
   },
   timetable: (data, onChange) => {
@@ -717,9 +963,227 @@ const EditForms = {
     el('div', { class: 'form-group' }, [el('label', { class: 'form-label' }, '问题'), el('input', { class: 'input', value: data.question || '', oninput: (e) => onChange({...data, question: e.target.value}) })]),
     el('div', { class: 'form-group' }, [el('label', { class: 'form-label' }, '选项 (用逗号分隔)'), el('input', { class: 'input', value: data.options || '', oninput: (e) => onChange({...data, options: e.target.value}) })])
   ]),
+  cooking_list: (data, onChange) => {
+    const items = data.items || [];
+    
+    // 触发重新渲染的辅助函数
+    const triggerRerender = (newData) => {
+      const container = document.getElementById('edit-form-container');
+      if (container && container.onChangeWithRerender) {
+        container.onChangeWithRerender(newData);
+      } else {
+        onChange(newData);
+      }
+    };
+    
+    const updateItem = (idx, val) => {
+      const newItems = [...items];
+      newItems[idx] = val;
+      onChange({ ...data, items: newItems });
+    };
+    const deleteItem = (idx) => {
+      const newItems = items.filter((_, i) => i !== idx);
+      triggerRerender({ ...data, items: newItems });
+    };
+    const addItem = () => {
+      const newItems = [...items, ''];
+      triggerRerender({ ...data, items: newItems });
+    };
+    
+    return el('div', {}, [
+      el('div', { class: 'form-group' }, [el('label', { class: 'form-label' }, '标题'), el('input', { class: 'input', value: data.title || '', oninput: (e) => onChange({...data, title: e.target.value}) })]),
+      el('div', { class: 'form-group' }, [
+        el('label', { class: 'form-label' }, '清单项'),
+        ...items.map((item, idx) => el('div', { class: 'flex gap-2 mb-2' }, [
+          el('input', { class: 'input flex-1', value: item, oninput: (e) => updateItem(idx, e.target.value) }),
+          el('button', { type: 'button', class: 'text-xs text-red-500 px-2', onclick: () => deleteItem(idx) }, '删除')
+        ])),
+        el('button', { type: 'button', class: 'btn btn-ghost text-xs bg-stone-100 w-full', onclick: addItem }, '+ 添加一项')
+      ])
+    ]);
+  },
+  backup_plan: (data, onChange) => el('div', {}, [
+    el('div', { class: 'form-group' }, [el('label', { class: 'form-label' }, '标题'), el('input', { class: 'input', value: data.title || '', oninput: (e) => onChange({...data, title: e.target.value}) })]),
+    el('div', { class: 'form-group' }, [el('label', { class: 'form-label' }, '备选方案'), el('textarea', { class: 'input', rows: 4, value: data.content || '', oninput: (e) => onChange({...data, content: e.target.value}) })])
+  ]),
+  habit_tracker: (data, onChange) => {
+    const habits = data.habits || [];
+    const triggerRerender = (newData) => {
+      const container = document.getElementById('edit-form-container');
+      if (container && container.onChangeWithRerender) {
+        container.onChangeWithRerender(newData);
+      } else {
+        onChange(newData);
+      }
+    };
+    const updateHabit = (idx, field, val) => {
+      const newHabits = [...habits];
+      newHabits[idx] = { ...newHabits[idx], [field]: val };
+      onChange({ ...data, habits: newHabits });
+    };
+    const deleteHabit = (idx) => {
+      const newHabits = habits.filter((_, i) => i !== idx);
+      triggerRerender({ ...data, habits: newHabits });
+    };
+    const addHabit = () => {
+      const newHabits = [...habits, { name: '', streak: 0 }];
+      triggerRerender({ ...data, habits: newHabits });
+    };
+    
+    return el('div', {}, [
+      el('div', { class: 'form-group' }, [el('label', { class: 'form-label' }, '标题'), el('input', { class: 'input', value: data.title || '', oninput: (e) => onChange({...data, title: e.target.value}) })]),
+      el('div', { class: 'form-group' }, [
+        el('label', { class: 'form-label' }, '习惯列表'),
+        ...habits.map((habit, idx) => el('div', { class: 'p-2 border border-stone-200 rounded mb-2' }, [
+          el('div', { class: 'mb-2' }, [
+            el('input', { class: 'input text-sm', placeholder: '习惯名称', value: habit.name || '', oninput: (e) => updateHabit(idx, 'name', e.target.value) })
+          ]),
+          el('div', { class: 'flex gap-2 items-center' }, [
+            el('span', { class: 'text-xs text-stone-400' }, '连续天数:'),
+            el('input', { type: 'number', class: 'input text-sm w-20', value: habit.streak || 0, oninput: (e) => updateHabit(idx, 'streak', parseInt(e.target.value) || 0) }),
+            el('button', { type: 'button', class: 'text-xs text-red-500 ml-auto px-2', onclick: () => deleteHabit(idx) }, '删除')
+          ])
+        ])),
+        el('button', { type: 'button', class: 'btn btn-ghost text-xs bg-stone-100 w-full', onclick: addHabit }, '+ 添加习惯')
+      ])
+    ]);
+  },
+  challenge_tracker: (data, onChange) => el('div', {}, [
+    el('div', { class: 'form-group' }, [el('label', { class: 'form-label' }, '挑战名称'), el('input', { class: 'input', value: data.title || '', oninput: (e) => onChange({...data, title: e.target.value}) })]),
+    el('div', { class: 'form-group' }, [el('label', { class: 'form-label' }, '当前进度'), el('input', { type: 'number', class: 'input', value: data.current || 0, oninput: (e) => onChange({...data, current: parseInt(e.target.value) || 0}) })]),
+    el('div', { class: 'form-group' }, [el('label', { class: 'form-label' }, '目标'), el('input', { type: 'number', class: 'input', value: data.target || 0, oninput: (e) => onChange({...data, target: parseInt(e.target.value) || 0}) })]),
+    el('div', { class: 'form-group' }, [el('label', { class: 'form-label' }, '单位'), el('input', { class: 'input', placeholder: '如：天、次、公里', value: data.unit || '', oninput: (e) => onChange({...data, unit: e.target.value}) })])
+  ]),
+  praise_jar: (data, onChange) => {
+    const praises = data.praises || [];
+    const triggerRerender = (newData) => {
+      const container = document.getElementById('edit-form-container');
+      if (container && container.onChangeWithRerender) {
+        container.onChangeWithRerender(newData);
+      } else {
+        onChange(newData);
+      }
+    };
+    const updatePraise = (idx, val) => {
+      const newPraises = [...praises];
+      newPraises[idx] = val;
+      onChange({ ...data, praises: newPraises });
+    };
+    const deletePraise = (idx) => {
+      const newPraises = praises.filter((_, i) => i !== idx);
+      triggerRerender({ ...data, praises: newPraises });
+    };
+    const addPraise = () => {
+      const newPraises = [...praises, ''];
+      triggerRerender({ ...data, praises: newPraises });
+    };
+    
+    return el('div', {}, [
+      el('div', { class: 'form-group' }, [el('label', { class: 'form-label' }, '标题'), el('input', { class: 'input', value: data.title || '', oninput: (e) => onChange({...data, title: e.target.value}) })]),
+      el('div', { class: 'form-group' }, [
+        el('label', { class: 'form-label' }, '夸夸内容'),
+        ...praises.map((praise, idx) => el('div', { class: 'flex gap-2 mb-2' }, [
+          el('textarea', { class: 'input flex-1 text-sm', rows: 2, value: praise, oninput: (e) => updatePraise(idx, e.target.value) }),
+          el('button', { type: 'button', class: 'text-xs text-red-500 px-2', onclick: () => deletePraise(idx) }, '删除')
+        ])),
+        el('button', { type: 'button', class: 'btn btn-ghost text-xs bg-stone-100 w-full', onclick: addPraise }, '+ 添加一条')
+      ])
+    ]);
+  },
+  gratitude_log: (data, onChange) => el('div', {}, [
+    el('div', { class: 'form-group' }, [el('label', { class: 'form-label' }, '日期'), el('input', { class: 'input', type: 'date', value: data.date || '', oninput: (e) => onChange({...data, date: e.target.value}) })]),
+    el('div', { class: 'form-group' }, [el('label', { class: 'form-label' }, '感恩内容'), el('textarea', { class: 'input', rows: 4, value: data.content || '', oninput: (e) => onChange({...data, content: e.target.value}) })])
+  ]),
+  date_idea_generator: (data, onChange) => {
+    const ideas = data.ideas || [];
+    const triggerRerender = (newData) => {
+      const container = document.getElementById('edit-form-container');
+      if (container && container.onChangeWithRerender) {
+        container.onChangeWithRerender(newData);
+      } else {
+        onChange(newData);
+      }
+    };
+    const updateIdea = (idx, val) => {
+      const newIdeas = [...ideas];
+      newIdeas[idx] = val;
+      onChange({ ...data, ideas: newIdeas });
+    };
+    const deleteIdea = (idx) => {
+      const newIdeas = ideas.filter((_, i) => i !== idx);
+      triggerRerender({ ...data, ideas: newIdeas });
+    };
+    const addIdea = () => {
+      const newIdeas = [...ideas, ''];
+      triggerRerender({ ...data, ideas: newIdeas });
+    };
+    
+    return el('div', {}, [
+      el('div', { class: 'form-group' }, [el('label', { class: 'form-label' }, '标题'), el('input', { class: 'input', value: data.title || '', oninput: (e) => onChange({...data, title: e.target.value}) })]),
+      el('div', { class: 'form-group' }, [
+        el('label', { class: 'form-label' }, '约会想法'),
+        ...ideas.map((idea, idx) => el('div', { class: 'flex gap-2 mb-2' }, [
+          el('input', { class: 'input flex-1', value: idea, oninput: (e) => updateIdea(idx, e.target.value) }),
+          el('button', { type: 'button', class: 'text-xs text-red-500 px-2', onclick: () => deleteIdea(idx) }, '删除')
+        ])),
+        el('button', { type: 'button', class: 'btn btn-ghost text-xs bg-stone-100 w-full', onclick: addIdea }, '+ 添加想法')
+      ])
+    ]);
+  },
+  question_of_week: (data, onChange) => el('div', {}, [
+    el('div', { class: 'form-group' }, [el('label', { class: 'form-label' }, '问题'), el('textarea', { class: 'input', rows: 2, value: data.question || '', oninput: (e) => onChange({...data, question: e.target.value}) })]),
+    el('div', { class: 'form-group' }, [el('label', { class: 'form-label' }, '答案'), el('textarea', { class: 'input', rows: 3, value: data.answer || '', oninput: (e) => onChange({...data, answer: e.target.value}) })])
+  ]),
+  playlist: (data, onChange) => {
+    const songs = data.songs || [];
+    const triggerRerender = (newData) => {
+      const container = document.getElementById('edit-form-container');
+      if (container && container.onChangeWithRerender) {
+        container.onChangeWithRerender(newData);
+      } else {
+        onChange(newData);
+      }
+    };
+    const updateSong = (idx, field, val) => {
+      const newSongs = [...songs];
+      newSongs[idx] = { ...newSongs[idx], [field]: val };
+      onChange({ ...data, songs: newSongs });
+    };
+    const deleteSong = (idx) => {
+      const newSongs = songs.filter((_, i) => i !== idx);
+      triggerRerender({ ...data, songs: newSongs });
+    };
+    const addSong = () => {
+      const newSongs = [...songs, { name: '', artist: '' }];
+      triggerRerender({ ...data, songs: newSongs });
+    };
+    
+    return el('div', {}, [
+      el('div', { class: 'form-group' }, [el('label', { class: 'form-label' }, '歌单名称'), el('input', { class: 'input', value: data.title || '', oninput: (e) => onChange({...data, title: e.target.value}) })]),
+      el('div', { class: 'form-group' }, [
+        el('label', { class: 'form-label' }, '歌曲列表'),
+        ...songs.map((song, idx) => el('div', { class: 'p-2 border border-stone-200 rounded mb-2' }, [
+          el('div', { class: 'mb-2' }, [
+            el('input', { class: 'input text-sm', placeholder: '歌曲名称', value: song.name || '', oninput: (e) => updateSong(idx, 'name', e.target.value) })
+          ]),
+          el('div', { class: 'flex gap-2' }, [
+            el('input', { class: 'input text-sm flex-1', placeholder: '歌手', value: song.artist || '', oninput: (e) => updateSong(idx, 'artist', e.target.value) }),
+            el('button', { type: 'button', class: 'text-xs text-red-500 px-2', onclick: () => deleteSong(idx) }, '删除')
+          ])
+        ])),
+        el('button', { type: 'button', class: 'btn btn-ghost text-xs bg-stone-100 w-full', onclick: addSong }, '+ 添加歌曲')
+      ])
+    ]);
+  },
+  song_of_week: (data, onChange) => el('div', {}, [
+    el('div', { class: 'form-group' }, [el('label', { class: 'form-label' }, '歌曲名称'), el('input', { class: 'input', value: data.name || '', oninput: (e) => onChange({...data, name: e.target.value}) })]),
+    el('div', { class: 'form-group' }, [el('label', { class: 'form-label' }, '歌手'), el('input', { class: 'input', value: data.artist || '', oninput: (e) => onChange({...data, artist: e.target.value}) })]),
+    el('div', { class: 'form-group' }, [el('label', { class: 'form-label' }, '链接（可选）'), el('input', { class: 'input', placeholder: '音乐平台链接', value: data.link || '', oninput: (e) => onChange({...data, link: e.target.value}) })]),
+    el('div', { class: 'form-group' }, [el('label', { class: 'form-label' }, '推荐理由'), el('textarea', { class: 'input', rows: 2, value: data.reason || '', oninput: (e) => onChange({...data, reason: e.target.value}) })])
+  ]),
   default: (data, onChange) => el('div', {}, [
     el('p', { class: 'text-xs text-red-500 mb-2' }, '该类型暂无专用编辑器，请直接修改 JSON'),
-    el('textarea', { class: 'input', rows: 5, value: JSON.stringify(data), onchange: (e) => { try { onChange(JSON.parse(e.target.value)) } catch(err){} } })
+    el('textarea', { class: 'input', rows: 10, value: JSON.stringify(data, null, 2), onchange: (e) => { try { onChange(JSON.parse(e.target.value)) } catch(err){ alert('JSON 格式错误：' + err.message); } } })
   ])
 }
 
@@ -741,6 +1205,19 @@ function logout() {
   const passwordInput = $('#password-input');
   if (usernameInput) usernameInput.value = '';
   if (passwordInput) passwordInput.value = '';
+}
+
+function hideLoadingScreen() {
+  const loadingScreen = $('#loading-screen');
+  if (loadingScreen) {
+    loadingScreen.classList.add('hidden');
+    // 延迟移除元素，让动画完成
+    setTimeout(() => {
+      if (loadingScreen.parentNode) {
+        loadingScreen.parentNode.removeChild(loadingScreen);
+      }
+    }, 300);
+  }
 }
 
 function init() {
@@ -773,6 +1250,7 @@ function init() {
           const mainView = $('#main-view');
           if (loginView) loginView.classList.remove('hidden');
           if (mainView) mainView.classList.add('hidden');
+          hideLoadingScreen();
           return; // 不自动登录，让用户重新登录
         }
       }
@@ -787,6 +1265,7 @@ function init() {
       const mainView = $('#main-view');
       if (loginView) loginView.classList.remove('hidden');
       if (mainView) mainView.classList.add('hidden');
+      hideLoadingScreen();
     }
   } else {
     // 没有保存的用户，确保显示登录页面
@@ -794,6 +1273,7 @@ function init() {
     const mainView = $('#main-view');
     if (loginView) loginView.classList.remove('hidden');
     if (mainView) mainView.classList.add('hidden');
+    hideLoadingScreen();
   }
 }
 
@@ -801,13 +1281,22 @@ async function handleLogin(e) {
   e.preventDefault();
   const u = $('#username-input').value.trim();
   const p = $('#password-input').value.trim();
+  
+  // 显示加载动画
+  const loadingScreen = $('#loading-screen');
+  if (loadingScreen) {
+    loadingScreen.classList.remove('hidden');
+  }
+  
   try {
     const user = await api.login(u, p);
     state.user = user;
     localStorage.setItem('currentUser', JSON.stringify(user));
-    showMainView();
+    await showMainView();
   } catch (err) {
     alert('登录失败: 用户名或密码错误');
+    // 登录失败时隐藏加载动画
+    hideLoadingScreen();
   }
 }
 
@@ -835,6 +1324,9 @@ async function showMainView() {
   state.activePageKey = 'home';
   renderNav();
   renderPage('home');
+  
+  // 数据加载完成后隐藏加载动画
+  hideLoadingScreen();
 }
 
 function renderNav() {
@@ -936,7 +1428,7 @@ function renderPage(key) {
     const createTime = formatDate(block.created_at);
     const updateTime = formatDate(block.last_updated_at);
 
-    const blockEl = el('div', { class: 'block-card' }, [
+    const blockEl = el('div', { class: 'block-card', 'data-block-id': block.id }, [
       el('div', { class: 'block-header' }, [
         el('div', { class: 'flex items-center gap-2' }, [
           el('span', { class: 'text-xs text-stone-300 uppercase tracking-wider' }, BLOCK_DEFINITIONS[block.type] || block.type),
@@ -985,16 +1477,36 @@ function openEditModal(block) {
       el('div', { id: 'edit-form-container' }, renderForm(tempData, handleChange)),
       el('div', { class: 'flex gap-2 mt-4 justify-end' }, [
         el('button', { class: 'btn btn-secondary', onclick: closeModal }, '取消'),
-        el('button', { class: 'btn btn-primary', onclick: async () => {
-          await api.updateBlock(block.id, tempData);
-          if (state.isDemo) {
-             renderPage(state.activePageKey);
-          } else {
-             state.blocks = await api.fetchBlocks();
-             renderPage(state.activePageKey);
+        el('button', { 
+          id: 'save-btn',
+          class: 'btn btn-primary', 
+          onclick: async () => {
+            const saveBtn = document.getElementById('save-btn');
+            if (saveBtn) {
+              saveBtn.classList.add('loading');
+              saveBtn.disabled = true;
+              const originalText = saveBtn.innerHTML;
+              saveBtn.innerHTML = '<span class="btn-text"><span class="loading-spinner"></span> 保存中...</span>';
+            }
+            try {
+              await api.updateBlock(block.id, tempData);
+              if (state.isDemo) {
+                 renderPage(state.activePageKey);
+              } else {
+                 state.blocks = await api.fetchBlocks();
+                 renderPage(state.activePageKey);
+              }
+              closeModal();
+            } catch (err) {
+              alert('保存失败：' + (err.message || '未知错误'));
+              if (saveBtn) {
+                saveBtn.classList.remove('loading');
+                saveBtn.disabled = false;
+                saveBtn.innerHTML = originalText;
+              }
+            }
           }
-          closeModal();
-        }}, '保存')
+        }, '保存')
       ])
     ])
   ]);
@@ -1031,38 +1543,65 @@ function openAddBlockModal() {
       el('p', { class: 'text-xs text-stone-400 mb-4' }, '注意：不同页面只能添加特定的积木哦'),
       el('div', { class: 'flex gap-2 mt-4 justify-end' }, [
         el('button', { class: 'btn btn-secondary', onclick: closeModal }, '取消'),
-        el('button', { class: 'btn btn-primary', onclick: async () => {
-          try {
-            let initData = {};
-            if (selectedType === 'countdown') initData = { label: '新倒计时', target: new Date().toISOString() };
-            else if (selectedType === 'mood_checkin') initData = { ben_mood: '😐', yuan_mood: '😐' };
-            else if (selectedType === 'tiny_goals') initData = { title: '本周目标', items: [{ text: '目标1', done: false }] };
-            else if (selectedType === 'visit_day_list') initData = { date: new Date().toISOString().split('T')[0], plan: '计划...' };
-            else if (selectedType === 'secret_note') initData = { cover: '点我展开', content: '写点悄悄话...' };
-            else if (selectedType === 'outfit_card') initData = { date: new Date().toISOString().split('T')[0], tags: 'OOTD', image: '' };
-            else if (selectedType === 'timetable') initData = { title: '我的课表', courses: [] };
-            else if (selectedType === 'decision_tool') initData = { question: '今天谁洗碗？', options: '我, 你' };
-            
-            await api.createBlock({ 
-              page_id: page.id, 
-              type: selectedType, 
-              order_index: 999, 
-              data: initData,
-              created_by: state.user.id
-            });
-            
-            if (state.isDemo) {
-              renderPage(state.activePageKey);
-            } else {
-              state.blocks = await api.fetchBlocks(); 
-              renderPage(state.activePageKey);
+        el('button', { 
+          id: 'add-btn',
+          class: 'btn btn-primary', 
+          onclick: async () => {
+            const addBtn = document.getElementById('add-btn');
+            if (addBtn) {
+              addBtn.classList.add('loading');
+              addBtn.disabled = true;
+              const originalText = addBtn.innerHTML;
+              addBtn.innerHTML = '<span class="btn-text"><span class="loading-spinner"></span> 添加中...</span>';
             }
-            closeModal();
-          } catch (err) {
-            console.error('Failed to create block:', err);
-            alert('创建失败: ' + (err.message || '未知错误，请检查控制台'));
+            try {
+              let initData = {};
+              if (selectedType === 'countdown') initData = { label: '新倒计时', target: new Date().toISOString() };
+              else if (selectedType === 'mood_checkin') initData = { ben_mood: '😐', yuan_mood: '😐' };
+              else if (selectedType === 'tiny_goals') initData = { title: '本周目标', items: [{ text: '目标1', done: false }] };
+              else if (selectedType === 'visit_day_list') initData = { date: new Date().toISOString().split('T')[0], plan: '计划...' };
+              else if (selectedType === 'secret_note') initData = { cover: '点我展开', content: '写点悄悄话...' };
+              else if (selectedType === 'outfit_card') initData = { date: new Date().toISOString().split('T')[0], tags: 'OOTD', images: [] };
+              else if (selectedType === 'photo_album') initData = { title: '我的相册', photos: [], description: '' };
+              else if (selectedType === 'timetable') initData = { title: '我的课表', courses: [] };
+              else if (selectedType === 'decision_tool') initData = { question: '今天谁洗碗？', options: '我, 你' };
+              else if (selectedType === 'cooking_list') initData = { title: '做饭清单', items: [] };
+              else if (selectedType === 'backup_plan') initData = { title: '备选方案', content: '' };
+              else if (selectedType === 'habit_tracker') initData = { title: '习惯打卡', habits: [] };
+              else if (selectedType === 'challenge_tracker') initData = { title: '挑战名称', current: 0, target: 0, unit: '' };
+              else if (selectedType === 'praise_jar') initData = { title: '夸夸瓶', praises: [] };
+              else if (selectedType === 'gratitude_log') initData = { date: new Date().toISOString().split('T')[0], content: '' };
+              else if (selectedType === 'date_idea_generator') initData = { title: '约会灵感', ideas: [] };
+              else if (selectedType === 'question_of_week') initData = { question: '', answer: '' };
+              else if (selectedType === 'playlist') initData = { title: '我的歌单', songs: [] };
+              else if (selectedType === 'song_of_week') initData = { name: '', artist: '', link: '', reason: '' };
+              
+              await api.createBlock({ 
+                page_id: page.id, 
+                type: selectedType, 
+                order_index: 999, 
+                data: initData,
+                created_by: state.user.id
+              });
+              
+              if (state.isDemo) {
+                renderPage(state.activePageKey);
+              } else {
+                state.blocks = await api.fetchBlocks(); 
+                renderPage(state.activePageKey);
+              }
+              closeModal();
+            } catch (err) {
+              console.error('Failed to create block:', err);
+              alert('创建失败: ' + (err.message || '未知错误，请检查控制台'));
+              if (addBtn) {
+                addBtn.classList.remove('loading');
+                addBtn.disabled = false;
+                addBtn.innerHTML = originalText;
+              }
+            }
           }
-        }}, '添加')
+        }, '添加')
       ])
     ])
   ]);
@@ -1080,9 +1619,84 @@ function closeModal() {
 
 async function deleteBlock(id) {
   if (confirm('确定要删除这个积木吗？')) {
-    await api.deleteBlock(id);
-    renderPage(state.activePageKey);
+    // 找到对应的删除按钮并显示加载状态
+    const blockEl = document.querySelector(`[data-block-id="${id}"]`) || 
+                    Array.from(document.querySelectorAll('.block-card')).find(el => {
+                      const deleteBtn = el.querySelector('.block-actions button:last-child');
+                      return deleteBtn && deleteBtn.onclick && deleteBtn.onclick.toString().includes(id);
+                    });
+    
+    let deleteBtn = null;
+    let originalText = '';
+    
+    if (blockEl) {
+      deleteBtn = blockEl.querySelector('.block-actions button:last-child');
+      if (deleteBtn && deleteBtn.textContent.trim() === '删除') {
+        deleteBtn.classList.add('loading');
+        deleteBtn.disabled = true;
+        originalText = deleteBtn.innerHTML;
+        deleteBtn.innerHTML = '<span class="loading-spinner"></span>';
+      }
+    }
+    
+    try {
+      await api.deleteBlock(id);
+      if (state.isDemo) {
+        renderPage(state.activePageKey);
+      } else {
+        state.blocks = await api.fetchBlocks();
+        renderPage(state.activePageKey);
+      }
+    } catch (err) {
+      alert('删除失败：' + (err.message || '未知错误'));
+      if (deleteBtn) {
+        deleteBtn.classList.remove('loading');
+        deleteBtn.disabled = false;
+        deleteBtn.innerHTML = originalText;
+      }
+    }
   }
 }
+
+// 删除歌单页面的函数（可以在浏览器控制台调用）
+async function deleteSoundtrackPage() {
+  const soundtrackPage = state.pages.find(p => p.key === 'soundtrack');
+  if (!soundtrackPage) {
+    alert('未找到歌单页面');
+    return;
+  }
+  
+  if (confirm(`确定要删除歌单页面 "${soundtrackPage.title}" 吗？\n这将删除该页面下的所有内容！`)) {
+    try {
+      // 显示加载提示
+      console.log('正在删除歌单页面...');
+      
+      // 删除页面（会自动删除该页面下的所有blocks）
+      await api.deletePage(soundtrackPage.id);
+      
+      // 刷新数据
+      state.pages = await api.fetchPages();
+      state.blocks = await api.fetchBlocks();
+      
+      // 如果当前正在查看歌单页面，跳转到首页
+      if (state.activePageKey === 'soundtrack') {
+        state.activePageKey = 'home';
+      }
+      
+      // 重新渲染
+      renderNav();
+      renderPage(state.activePageKey);
+      
+      alert('歌单页面已成功删除！');
+      console.log('歌单页面删除成功');
+    } catch (err) {
+      alert('删除失败：' + (err.message || '未知错误'));
+      console.error('删除失败：', err);
+    }
+  }
+}
+
+// 暴露到全局作用域，方便在控制台调用
+window.deleteSoundtrackPage = deleteSoundtrackPage;
 
 init();
