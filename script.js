@@ -146,6 +146,22 @@ const api = {
     return await res.json();
   },
 
+  async updateBlockOrder(id, order_index) {
+    if (state.isDemo) {
+      const idx = state.blocks.findIndex(b => b.id === id);
+      if (idx !== -1) {
+        state.blocks[idx].order_index = order_index;
+      }
+      return state.blocks[idx];
+    }
+    const res = await fetch(`${SUPABASE_URL}/rest/v1/blocks?id=eq.${id}`, {
+      method: 'PATCH',
+      headers: this.getHeaders(),
+      body: JSON.stringify({ order_index })
+    });
+    return await res.json();
+  },
+
   async createBlock(blockData) {
     if (state.isDemo) {
       const now = new Date().toISOString();
@@ -271,6 +287,153 @@ const el = (tag, props = {}, children = []) => {
   return element;
 };
 
+// 图片裁剪函数：将图片裁剪成正方形（居中裁剪）
+function resizeAndCropImage(imageDataUrl, targetSize = 800, quality = 0.9) {
+  return new Promise((resolve, reject) => {
+    const img = new Image();
+    img.onload = () => {
+      try {
+        // 创建canvas
+        const canvas = document.createElement('canvas');
+        canvas.width = targetSize;
+        canvas.height = targetSize;
+        const ctx = canvas.getContext('2d');
+        
+        // 计算裁剪区域（居中裁剪，取较小的边）
+        const sourceSize = Math.min(img.width, img.height);
+        const sourceX = (img.width - sourceSize) / 2;
+        const sourceY = (img.height - sourceSize) / 2;
+        
+        // 绘制图片到canvas（居中裁剪并缩放到目标尺寸）
+        ctx.drawImage(
+          img,
+          sourceX, sourceY, sourceSize, sourceSize,  // 源图片裁剪区域
+          0, 0, targetSize, targetSize  // 目标canvas区域
+        );
+        
+        // 转换为base64
+        const croppedDataUrl = canvas.toDataURL('image/jpeg', quality);
+        resolve(croppedDataUrl);
+      } catch (err) {
+        reject(err);
+      }
+    };
+    img.onerror = () => reject(new Error('图片加载失败'));
+    img.src = imageDataUrl;
+  });
+}
+
+// 图片查看器：显示大图
+function openImageViewer(images, currentIndex = 0) {
+  if (!images || images.length === 0) return;
+  
+  let currentIdx = currentIndex;
+  const imageUrls = images.map(img => img.url || img || img);
+  
+  const closeViewer = () => {
+    const viewer = $('#image-viewer');
+    if (viewer) {
+      viewer.classList.add('hidden');
+      setTimeout(() => {
+        if (viewer.parentNode) {
+          viewer.parentNode.removeChild(viewer);
+        }
+      }, 300);
+    }
+  };
+  
+  const showImage = (index) => {
+    if (index < 0) index = imageUrls.length - 1;
+    if (index >= imageUrls.length) index = 0;
+    currentIdx = index;
+    
+    const imgEl = $('#image-viewer-img');
+    const counterEl = $('#image-viewer-counter');
+    if (imgEl) imgEl.src = imageUrls[currentIdx];
+    if (counterEl) counterEl.textContent = `${currentIdx + 1} / ${imageUrls.length}`;
+    
+    // 显示/隐藏导航按钮
+    const prevBtn = $('#image-viewer-prev');
+    const nextBtn = $('#image-viewer-next');
+    if (prevBtn) prevBtn.style.display = imageUrls.length > 1 ? 'flex' : 'none';
+    if (nextBtn) nextBtn.style.display = imageUrls.length > 1 ? 'flex' : 'none';
+  };
+  
+  const viewer = el('div', { 
+    id: 'image-viewer',
+    class: 'fixed inset-0 z-50 bg-black/90 flex items-center justify-center',
+    onclick: (e) => {
+      // 点击背景关闭
+      if (e.target.id === 'image-viewer') {
+        closeViewer();
+      }
+    }
+  }, [
+    // 关闭按钮
+    el('button', {
+      id: 'image-viewer-close',
+      class: 'absolute top-4 right-4 text-white text-2xl w-10 h-10 flex items-center justify-center bg-black/50 rounded-full hover:bg-black/70',
+      onclick: closeViewer
+    }, '×'),
+    
+    // 上一张按钮
+    el('button', {
+      id: 'image-viewer-prev',
+      class: 'absolute left-4 text-white text-2xl w-12 h-12 flex items-center justify-center bg-black/50 rounded-full hover:bg-black/70',
+      style: imageUrls.length > 1 ? '' : 'display: none;',
+      onclick: (e) => {
+        e.stopPropagation();
+        showImage(currentIdx - 1);
+      }
+    }, '‹'),
+    
+    // 下一张按钮
+    el('button', {
+      id: 'image-viewer-next',
+      class: 'absolute right-4 text-white text-2xl w-12 h-12 flex items-center justify-center bg-black/50 rounded-full hover:bg-black/70',
+      style: imageUrls.length > 1 ? '' : 'display: none;',
+      onclick: (e) => {
+        e.stopPropagation();
+        showImage(currentIdx + 1);
+      }
+    }, '›'),
+    
+    // 图片容器
+    el('div', {
+      class: 'max-w-full max-h-full p-4 flex flex-col items-center',
+      onclick: (e) => e.stopPropagation()
+    }, [
+      el('img', {
+        id: 'image-viewer-img',
+        src: imageUrls[currentIdx],
+        class: 'max-w-full max-h-[85vh] object-contain',
+        style: 'cursor: default;'
+      }),
+      imageUrls.length > 1 ? el('div', {
+        id: 'image-viewer-counter',
+        class: 'text-white text-sm mt-4 bg-black/50 px-3 py-1 rounded'
+      }, `${currentIdx + 1} / ${imageUrls.length}`) : null
+    ])
+  ]);
+  
+  // 键盘事件
+  const handleKeyDown = (e) => {
+    if (e.key === 'Escape') {
+      closeViewer();
+      document.removeEventListener('keydown', handleKeyDown);
+    } else if (e.key === 'ArrowLeft' && imageUrls.length > 1) {
+      showImage(currentIdx - 1);
+    } else if (e.key === 'ArrowRight' && imageUrls.length > 1) {
+      showImage(currentIdx + 1);
+    }
+  };
+  document.addEventListener('keydown', handleKeyDown);
+  
+  // 添加到页面
+  document.body.appendChild(viewer);
+  showImage(currentIdx);
+}
+
 // Helper: Format Date
 const formatDate = (isoString) => {
   if (!isoString) return '';
@@ -340,19 +503,30 @@ const BlockRenderers = {
 
   outfit_card: (data) => {
     const images = data.images || (data.image ? [data.image] : []);
+    const comments = data.comments || [];
     return el('div', {}, [
       images.length > 0 ? el('div', { class: 'mb-2' }, [
         images.length === 1 ? 
-          el('div', { class: 'rounded overflow-hidden', style: 'max-height: 300px;' }, [
+          el('div', { 
+            class: 'rounded overflow-hidden cursor-pointer', 
+            style: 'max-height: 300px;',
+            onclick: () => openImageViewer(images, 0)
+          }, [
             el('img', { src: images[0], class: 'w-full h-full object-cover' })
           ]) :
           el('div', { class: 'grid grid-cols-2 gap-2' }, 
-            images.slice(0, 4).map(img => 
-              el('div', { class: 'aspect-square rounded overflow-hidden' }, [
+            images.slice(0, 4).map((img, idx) => 
+              el('div', { 
+                class: 'aspect-square rounded overflow-hidden cursor-pointer',
+                onclick: () => openImageViewer(images, idx)
+              }, [
                 el('img', { src: img, class: 'w-full h-full object-cover' })
               ])
             ).concat(
-              images.length > 4 ? el('div', { class: 'aspect-square rounded bg-stone-100 flex items-center justify-center text-xs text-stone-400' }, `+${images.length - 4}`) : null
+              images.length > 4 ? el('div', { 
+                class: 'aspect-square rounded bg-stone-100 flex items-center justify-center text-xs text-stone-400 cursor-pointer',
+                onclick: () => openImageViewer(images, 4)
+              }, `+${images.length - 4}`) : null
             )
           )
       ]) : null,
@@ -360,7 +534,19 @@ const BlockRenderers = {
         el('span', { class: 'font-bold text-sm' }, data.date || ''),
         el('span', { class: 'text-xs text-stone-400 bg-stone-100 px-2 py-1 rounded' }, data.tags || 'OOTD')
       ]),
-      el('p', { class: 'text-sm text-stone-600' }, data.note || '')
+      el('p', { class: 'text-sm text-stone-600 mb-2' }, data.note || ''),
+      // 评论区域
+      el('div', { class: 'mt-3 pt-3 border-t border-stone-100' }, [
+        el('div', { class: 'text-xs text-stone-400 mb-2' }, comments.length > 0 ? `💬 ${comments.length} 条评论` : '💬 暂无评论'),
+        comments.length > 0 ? el('div', { class: 'space-y-2' }, 
+          comments.map((comment, idx) => 
+            el('div', { class: 'text-xs bg-stone-50 p-2 rounded' }, [
+              el('div', { class: 'font-medium text-stone-700 mb-1' }, comment.author || '匿名'),
+              el('div', { class: 'text-stone-600' }, comment.text || '')
+            ])
+          )
+        ) : null
+      ])
     ]);
   },
   
@@ -378,9 +564,10 @@ const BlockRenderers = {
       el('div', { class: 'grid grid-cols-3 gap-2' }, 
         photos.map((photo, index) => 
           el('div', { 
-            class: 'aspect-square rounded overflow-hidden bg-stone-100',
+            class: 'aspect-square rounded overflow-hidden bg-stone-100 cursor-pointer',
             onclick: () => {
-              // 点击查看大图（可以后续扩展）
+              const photoUrls = photos.map(p => p.url || p);
+              openImageViewer(photoUrls, index);
             }
           }, [
             el('img', { 
@@ -396,13 +583,29 @@ const BlockRenderers = {
   },
 
   memory_card: (data) => {
+    const comments = data.comments || [];
     return el('div', {}, [
-       data.image ? el('div', { class: 'mb-2 rounded overflow-hidden h-40' }, [
+       data.image ? el('div', { 
+         class: 'mb-2 rounded overflow-hidden h-40 cursor-pointer',
+         onclick: () => openImageViewer([data.image], 0)
+       }, [
         el('img', { src: data.image, class: 'w-full h-full object-cover' })
       ]) : null,
       el('div', { class: 'font-bold text-rose-500' }, data.date || ''),
       el('h4', { class: 'font-bold mb-1' }, data.title || ''),
-      el('p', { class: 'text-sm text-stone-600' }, data.content || '')
+      el('p', { class: 'text-sm text-stone-600 mb-2' }, data.content || ''),
+      // 评论区域
+      el('div', { class: 'mt-3 pt-3 border-t border-stone-100' }, [
+        el('div', { class: 'text-xs text-stone-400 mb-2' }, comments.length > 0 ? `💬 ${comments.length} 条评论` : '💬 暂无评论'),
+        comments.length > 0 ? el('div', { class: 'space-y-2' }, 
+          comments.map((comment, idx) => 
+            el('div', { class: 'text-xs bg-stone-50 p-2 rounded' }, [
+              el('div', { class: 'font-medium text-stone-700 mb-1' }, comment.author || '匿名'),
+              el('div', { class: 'text-stone-600' }, comment.text || '')
+            ])
+          )
+        ) : null
+      ])
     ]);
   },
 
@@ -580,18 +783,25 @@ const EditForms = {
       
       validFiles.forEach(file => {
         const reader = new FileReader();
-        reader.onload = (event) => {
-          const base64 = event.target.result;
-          images.push(base64);
-          loadedCount++;
-          
-          if (loadedCount === validFiles.length) {
-            const newData = {...data, images: images, image: images[0]}; // 保持兼容性
-            onChange(newData);
-            const container = document.getElementById('edit-form-container');
-            if (container && container.onChangeWithRerender) {
-              container.onChangeWithRerender(newData);
+        reader.onload = async (event) => {
+          try {
+            const originalBase64 = event.target.result;
+            // 裁剪成正方形（800x800）
+            const croppedBase64 = await resizeAndCropImage(originalBase64, 800, 0.85);
+            images.push(croppedBase64);
+            loadedCount++;
+            
+            if (loadedCount === validFiles.length) {
+              const newData = {...data, images: images, image: images[0]}; // 保持兼容性
+              onChange(newData);
+              const container = document.getElementById('edit-form-container');
+              if (container && container.onChangeWithRerender) {
+                container.onChangeWithRerender(newData);
+              }
             }
+          } catch (err) {
+            console.error('图片裁剪失败:', err);
+            alert(`图片 ${file.name} 处理失败：${err.message}`);
           }
         };
         reader.onerror = () => {
@@ -642,11 +852,67 @@ const EditForms = {
       ])
     ]);
     
+    // 评论管理
+    const comments = data.comments || [];
+    const triggerRerender = (newData) => {
+      const container = document.getElementById('edit-form-container');
+      if (container && container.onChangeWithRerender) {
+        container.onChangeWithRerender(newData);
+      } else {
+        onChange(newData);
+      }
+    };
+    const addComment = () => {
+      const newComments = [...comments, { author: state.user?.display_name || '我', text: '', date: new Date().toISOString() }];
+      triggerRerender({ ...data, comments: newComments });
+    };
+    const updateComment = (idx, field, val) => {
+      const newComments = [...comments];
+      newComments[idx] = { ...newComments[idx], [field]: val };
+      onChange({ ...data, comments: newComments });
+    };
+    const deleteComment = (idx) => {
+      const newComments = comments.filter((_, i) => i !== idx);
+      triggerRerender({ ...data, comments: newComments });
+    };
+    
     return el('div', {}, [
-      el('div', { class: 'form-group' }, [el('label', { class: 'form-label' }, '日期'), el('input', { class: 'input', type: 'date', value: data.date || '', oninput: (e) => onChange({...data, date: e.target.value}) })]),
+    el('div', { class: 'form-group' }, [el('label', { class: 'form-label' }, '日期'), el('input', { class: 'input', type: 'date', value: data.date || '', oninput: (e) => onChange({...data, date: e.target.value}) })]),
       previewContainer,
-      el('div', { class: 'form-group' }, [el('label', { class: 'form-label' }, '标签'), el('input', { class: 'input', placeholder: '约会, 通勤...', value: data.tags || '', oninput: (e) => onChange({...data, tags: e.target.value}) })]),
-      el('div', { class: 'form-group' }, [el('label', { class: 'form-label' }, '备注'), el('input', { class: 'input', value: data.note || '', oninput: (e) => onChange({...data, note: e.target.value}) })])
+    el('div', { class: 'form-group' }, [el('label', { class: 'form-label' }, '标签'), el('input', { class: 'input', placeholder: '约会, 通勤...', value: data.tags || '', oninput: (e) => onChange({...data, tags: e.target.value}) })]),
+      el('div', { class: 'form-group' }, [el('label', { class: 'form-label' }, '备注'), el('input', { class: 'input', value: data.note || '', oninput: (e) => onChange({...data, note: e.target.value}) })]),
+      el('div', { class: 'form-group mt-4 pt-4 border-t border-stone-200' }, [
+        el('label', { class: 'form-label' }, '💬 评论'),
+        ...comments.map((comment, idx) => 
+          el('div', { class: 'p-2 bg-stone-50 rounded mb-2' }, [
+            el('div', { class: 'flex gap-2 mb-1' }, [
+              el('input', { 
+                class: 'input text-xs flex-1', 
+                placeholder: '评论者', 
+                value: comment.author || '', 
+                oninput: (e) => updateComment(idx, 'author', e.target.value) 
+              }),
+              el('button', {
+                type: 'button',
+                class: 'text-xs text-red-500 px-2',
+                onclick: () => deleteComment(idx)
+              }, '删除')
+            ]),
+            el('textarea', {
+              class: 'input text-xs w-full',
+              rows: 2,
+              placeholder: '评论内容',
+              value: comment.text || '',
+              oninput: (e) => updateComment(idx, 'text', e.target.value)
+            })
+          ])
+        ),
+        el('button', {
+          type: 'button',
+          class: 'btn btn-ghost text-xs bg-stone-100 w-full',
+          onclick: addComment
+        }, '+ 添加评论')
+      ])
     ]);
   },
   memory_card: (data, onChange) => {
@@ -667,17 +933,24 @@ const EditForms = {
         return;
       }
       
-      // 读取文件并转换为 base64
+      // 读取文件并转换为 base64，然后裁剪
       const reader = new FileReader();
-      reader.onload = (event) => {
-        const base64 = event.target.result;
-        // 文件上传后需要更新数据并重新渲染以显示预览
-        const newData = {...data, image: base64};
-        onChange(newData);
-        // 触发重新渲染以显示图片预览
-        const container = document.getElementById('edit-form-container');
-        if (container && container.onChangeWithRerender) {
-          container.onChangeWithRerender(newData);
+      reader.onload = async (event) => {
+        try {
+          const originalBase64 = event.target.result;
+          // 裁剪成正方形（800x800）
+          const croppedBase64 = await resizeAndCropImage(originalBase64, 800, 0.85);
+          // 文件上传后需要更新数据并重新渲染以显示预览
+          const newData = {...data, image: croppedBase64};
+          onChange(newData);
+          // 触发重新渲染以显示图片预览
+          const container = document.getElementById('edit-form-container');
+          if (container && container.onChangeWithRerender) {
+            container.onChangeWithRerender(newData);
+          }
+        } catch (err) {
+          console.error('图片裁剪失败:', err);
+          alert('图片处理失败：' + err.message);
         }
       };
       reader.onerror = () => {
@@ -721,11 +994,67 @@ const EditForms = {
       ])
     ]);
     
+    // 评论管理
+    const comments = data.comments || [];
+    const triggerRerender = (newData) => {
+      const container = document.getElementById('edit-form-container');
+      if (container && container.onChangeWithRerender) {
+        container.onChangeWithRerender(newData);
+      } else {
+        onChange(newData);
+      }
+    };
+    const addComment = () => {
+      const newComments = [...comments, { author: state.user?.display_name || '我', text: '', date: new Date().toISOString() }];
+      triggerRerender({ ...data, comments: newComments });
+    };
+    const updateComment = (idx, field, val) => {
+      const newComments = [...comments];
+      newComments[idx] = { ...newComments[idx], [field]: val };
+      onChange({ ...data, comments: newComments });
+    };
+    const deleteComment = (idx) => {
+      const newComments = comments.filter((_, i) => i !== idx);
+      triggerRerender({ ...data, comments: newComments });
+    };
+    
     return el('div', {}, [
       el('div', { class: 'form-group' }, [el('label', { class: 'form-label' }, '标题'), el('input', { class: 'input', value: data.title || '', oninput: (e) => onChange({...data, title: e.target.value}) })]),
       el('div', { class: 'form-group' }, [el('label', { class: 'form-label' }, '日期'), el('input', { class: 'input', type: 'date', value: data.date || '', oninput: (e) => onChange({...data, date: e.target.value}) })]),
       previewContainer,
-      el('div', { class: 'form-group' }, [el('label', { class: 'form-label' }, '内容'), el('textarea', { class: 'input', rows: 2, value: data.content || '', oninput: (e) => onChange({...data, content: e.target.value}) })])
+      el('div', { class: 'form-group' }, [el('label', { class: 'form-label' }, '内容'), el('textarea', { class: 'input', rows: 2, value: data.content || '', oninput: (e) => onChange({...data, content: e.target.value}) })]),
+      el('div', { class: 'form-group mt-4 pt-4 border-t border-stone-200' }, [
+        el('label', { class: 'form-label' }, '💬 评论'),
+        ...comments.map((comment, idx) => 
+          el('div', { class: 'p-2 bg-stone-50 rounded mb-2' }, [
+            el('div', { class: 'flex gap-2 mb-1' }, [
+              el('input', { 
+                class: 'input text-xs flex-1', 
+                placeholder: '评论者', 
+                value: comment.author || '', 
+                oninput: (e) => updateComment(idx, 'author', e.target.value) 
+              }),
+              el('button', {
+                type: 'button',
+                class: 'text-xs text-red-500 px-2',
+                onclick: () => deleteComment(idx)
+              }, '删除')
+            ]),
+            el('textarea', {
+              class: 'input text-xs w-full',
+              rows: 2,
+              placeholder: '评论内容',
+              value: comment.text || '',
+              oninput: (e) => updateComment(idx, 'text', e.target.value)
+            })
+          ])
+        ),
+        el('button', {
+          type: 'button',
+          class: 'btn btn-ghost text-xs bg-stone-100 w-full',
+          onclick: addComment
+        }, '+ 添加评论')
+      ])
     ]);
   },
   photo_album: (data, onChange) => {
@@ -761,18 +1090,25 @@ const EditForms = {
       
       validFiles.forEach(file => {
         const reader = new FileReader();
-        reader.onload = (event) => {
-          const base64 = event.target.result;
-          photos.push({ url: base64, date: new Date().toISOString() });
-          loadedCount++;
-          
-          if (loadedCount === validFiles.length) {
-            const newData = {...data, photos: photos};
-            onChange(newData);
-            const container = document.getElementById('edit-form-container');
-            if (container && container.onChangeWithRerender) {
-              container.onChangeWithRerender(newData);
+        reader.onload = async (event) => {
+          try {
+            const originalBase64 = event.target.result;
+            // 裁剪成正方形（800x800）
+            const croppedBase64 = await resizeAndCropImage(originalBase64, 800, 0.85);
+            photos.push({ url: croppedBase64, date: new Date().toISOString() });
+            loadedCount++;
+            
+            if (loadedCount === validFiles.length) {
+              const newData = {...data, photos: photos};
+              onChange(newData);
+              const container = document.getElementById('edit-form-container');
+              if (container && container.onChangeWithRerender) {
+                container.onChangeWithRerender(newData);
+              }
             }
+          } catch (err) {
+            console.error('图片裁剪失败:', err);
+            alert(`图片 ${file.name} 处理失败：${err.message}`);
           }
         };
         reader.onerror = () => {
@@ -1256,7 +1592,7 @@ function init() {
       }
       // 有效的用户数据，自动登录
       state.user = user;
-      showMainView();
+    showMainView();
     } catch (e) {
       console.error('Failed to parse saved user:', e);
       localStorage.removeItem('currentUser');
@@ -1435,6 +1771,20 @@ function renderPage(key) {
           creatorName ? el('span', { class: 'creator-tag' }, `From ${creatorName}`) : null
         ]),
         el('div', { class: 'block-actions flex gap-2' }, [
+          // 上移按钮
+          el('button', { 
+            id: `move-up-${block.id}`,
+            class: 'text-xs hover:text-primary', 
+            onclick: () => moveBlock(block.id, 'up'),
+            style: pageBlocks.indexOf(block) === 0 ? 'opacity: 0.3; pointer-events: none;' : ''
+          }, '↑'),
+          // 下移按钮
+          el('button', { 
+            id: `move-down-${block.id}`,
+            class: 'text-xs hover:text-primary', 
+            onclick: () => moveBlock(block.id, 'down'),
+            style: pageBlocks.indexOf(block) === pageBlocks.length - 1 ? 'opacity: 0.3; pointer-events: none;' : ''
+          }, '↓'),
           el('button', { class: 'text-xs hover:text-primary', onclick: () => openEditModal(block) }, '编辑'),
           el('button', { class: 'text-xs hover:text-red-500', onclick: () => deleteBlock(block.id) }, '删除')
         ])
@@ -1453,7 +1803,7 @@ function renderPage(key) {
 function openEditModal(block) {
   let tempData = JSON.parse(JSON.stringify(block.data));
   const renderForm = EditForms[block.type] || EditForms.default;
-  
+
   // 创建一个不重新渲染的 onChange 处理函数
   // 只在数据变化时更新 tempData，不重新渲染表单（避免输入框失焦）
   const handleChange = (newData) => {
@@ -1463,10 +1813,10 @@ function openEditModal(block) {
   
   // 创建一个需要重新渲染的 onChange 处理函数（用于文件上传等需要更新UI的场景）
   const handleChangeWithRerender = (newData) => {
-    tempData = newData;
-    const container = document.getElementById('edit-form-container');
+        tempData = newData;
+        const container = document.getElementById('edit-form-container');
     if (container) {
-      container.innerHTML = '';
+        container.innerHTML = '';
       container.appendChild(renderForm(tempData, handleChange));
     }
   };
@@ -1489,14 +1839,14 @@ function openEditModal(block) {
               saveBtn.innerHTML = '<span class="btn-text"><span class="loading-spinner"></span> 保存中...</span>';
             }
             try {
-              await api.updateBlock(block.id, tempData);
-              if (state.isDemo) {
-                 renderPage(state.activePageKey);
-              } else {
-                 state.blocks = await api.fetchBlocks();
-                 renderPage(state.activePageKey);
-              }
-              closeModal();
+          await api.updateBlock(block.id, tempData);
+          if (state.isDemo) {
+             renderPage(state.activePageKey);
+          } else {
+             state.blocks = await api.fetchBlocks();
+             renderPage(state.activePageKey);
+          }
+          closeModal();
             } catch (err) {
               alert('保存失败：' + (err.message || '未知错误'));
               if (saveBtn) {
@@ -1555,16 +1905,16 @@ function openAddBlockModal() {
               addBtn.innerHTML = '<span class="btn-text"><span class="loading-spinner"></span> 添加中...</span>';
             }
             try {
-              let initData = {};
-              if (selectedType === 'countdown') initData = { label: '新倒计时', target: new Date().toISOString() };
-              else if (selectedType === 'mood_checkin') initData = { ben_mood: '😐', yuan_mood: '😐' };
-              else if (selectedType === 'tiny_goals') initData = { title: '本周目标', items: [{ text: '目标1', done: false }] };
-              else if (selectedType === 'visit_day_list') initData = { date: new Date().toISOString().split('T')[0], plan: '计划...' };
-              else if (selectedType === 'secret_note') initData = { cover: '点我展开', content: '写点悄悄话...' };
+          let initData = {};
+          if (selectedType === 'countdown') initData = { label: '新倒计时', target: new Date().toISOString() };
+          else if (selectedType === 'mood_checkin') initData = { ben_mood: '😐', yuan_mood: '😐' };
+          else if (selectedType === 'tiny_goals') initData = { title: '本周目标', items: [{ text: '目标1', done: false }] };
+          else if (selectedType === 'visit_day_list') initData = { date: new Date().toISOString().split('T')[0], plan: '计划...' };
+          else if (selectedType === 'secret_note') initData = { cover: '点我展开', content: '写点悄悄话...' };
               else if (selectedType === 'outfit_card') initData = { date: new Date().toISOString().split('T')[0], tags: 'OOTD', images: [] };
               else if (selectedType === 'photo_album') initData = { title: '我的相册', photos: [], description: '' };
               else if (selectedType === 'timetable') initData = { title: '我的课表', courses: [] };
-              else if (selectedType === 'decision_tool') initData = { question: '今天谁洗碗？', options: '我, 你' };
+          else if (selectedType === 'decision_tool') initData = { question: '今天谁洗碗？', options: '我, 你' };
               else if (selectedType === 'cooking_list') initData = { title: '做饭清单', items: [] };
               else if (selectedType === 'backup_plan') initData = { title: '备选方案', content: '' };
               else if (selectedType === 'habit_tracker') initData = { title: '习惯打卡', habits: [] };
@@ -1575,22 +1925,29 @@ function openAddBlockModal() {
               else if (selectedType === 'question_of_week') initData = { question: '', answer: '' };
               else if (selectedType === 'playlist') initData = { title: '我的歌单', songs: [] };
               else if (selectedType === 'song_of_week') initData = { name: '', artist: '', link: '', reason: '' };
-              
-              await api.createBlock({ 
-                page_id: page.id, 
-                type: selectedType, 
-                order_index: 999, 
-                data: initData,
-                created_by: state.user.id
-              });
-              
-              if (state.isDemo) {
-                renderPage(state.activePageKey);
-              } else {
-                state.blocks = await api.fetchBlocks(); 
-                renderPage(state.activePageKey);
-              }
-              closeModal();
+          
+          // 计算正确的order_index（确保新板块在最后）
+          const pageBlocks = state.blocks.filter(b => b.page_id === page.id);
+          const maxOrderIndex = pageBlocks.length > 0 
+            ? Math.max(...pageBlocks.map(b => b.order_index || 0))
+            : -1;
+          const newOrderIndex = maxOrderIndex + 1;
+          
+          await api.createBlock({ 
+            page_id: page.id, 
+            type: selectedType, 
+            order_index: newOrderIndex, 
+            data: initData,
+            created_by: state.user.id
+          });
+          
+          if (state.isDemo) {
+            renderPage(state.activePageKey);
+          } else {
+            state.blocks = await api.fetchBlocks(); 
+            renderPage(state.activePageKey);
+          }
+          closeModal();
             } catch (err) {
               console.error('Failed to create block:', err);
               alert('创建失败: ' + (err.message || '未知错误，请检查控制台'));
@@ -1640,12 +1997,12 @@ async function deleteBlock(id) {
     }
     
     try {
-      await api.deleteBlock(id);
+    await api.deleteBlock(id);
       if (state.isDemo) {
         renderPage(state.activePageKey);
       } else {
         state.blocks = await api.fetchBlocks();
-        renderPage(state.activePageKey);
+    renderPage(state.activePageKey);
       }
     } catch (err) {
       alert('删除失败：' + (err.message || '未知错误'));
@@ -1698,5 +2055,70 @@ async function deleteSoundtrackPage() {
 
 // 暴露到全局作用域，方便在控制台调用
 window.deleteSoundtrackPage = deleteSoundtrackPage;
+
+// 板块移动功能
+async function moveBlock(blockId, direction) {
+  const page = state.pages.find(p => p.key === state.activePageKey);
+  if (!page) return;
+  
+  const pageBlocks = state.blocks.filter(b => b.page_id === page.id).sort((a, b) => a.order_index - b.order_index);
+  const currentIndex = pageBlocks.findIndex(b => b.id === blockId);
+  
+  if (currentIndex === -1) return;
+  
+  let targetIndex;
+  if (direction === 'up') {
+    if (currentIndex === 0) return; // 已经在最上面
+    targetIndex = currentIndex - 1;
+  } else {
+    if (currentIndex === pageBlocks.length - 1) return; // 已经在最下面
+    targetIndex = currentIndex + 1;
+  }
+  
+  // 找到移动按钮并显示加载状态
+  const moveBtnId = direction === 'up' ? `move-up-${blockId}` : `move-down-${blockId}`;
+  const moveBtn = document.getElementById(moveBtnId);
+  let originalText = '';
+  let originalDisabled = false;
+  
+  if (moveBtn) {
+    originalText = moveBtn.innerHTML;
+    originalDisabled = moveBtn.disabled;
+    moveBtn.classList.add('loading');
+    moveBtn.disabled = true;
+    moveBtn.innerHTML = '<span class="loading-spinner"></span>';
+  }
+  
+  // 交换order_index
+  const currentBlock = pageBlocks[currentIndex];
+  const targetBlock = pageBlocks[targetIndex];
+  const tempOrder = currentBlock.order_index;
+  
+  try {
+    // 更新两个块的order_index
+    await api.updateBlockOrder(currentBlock.id, targetBlock.order_index);
+    await api.updateBlockOrder(targetBlock.id, tempOrder);
+    
+    // 刷新数据并重新渲染
+    if (state.isDemo) {
+      // Demo模式：直接交换
+      currentBlock.order_index = targetBlock.order_index;
+      targetBlock.order_index = tempOrder;
+      renderPage(state.activePageKey);
+    } else {
+      state.blocks = await api.fetchBlocks();
+      renderPage(state.activePageKey);
+    }
+  } catch (err) {
+    alert('移动失败：' + (err.message || '未知错误'));
+    console.error('移动板块失败：', err);
+    // 恢复按钮状态
+    if (moveBtn) {
+      moveBtn.classList.remove('loading');
+      moveBtn.disabled = originalDisabled;
+      moveBtn.innerHTML = originalText;
+    }
+  }
+}
 
 init();
