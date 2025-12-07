@@ -489,6 +489,25 @@ const BlockRenderers = {
     ]);
   },
 
+  cooking_list: (data) => {
+    const items = data.items || [];
+    return el('div', {}, [
+      el('h4', { class: 'font-bold mb-2' }, data.title || '做饭清单'),
+      items.length > 0 ? el('div', { class: 'space-y-1' }, items.map((item, idx) => {
+        // 支持字符串或对象格式
+        const itemText = typeof item === 'string' ? item : (item.text || item.name || String(item));
+        return el('div', { class: 'text-sm bg-stone-50 p-2 rounded' }, itemText);
+      })) : el('div', { class: 'text-sm text-stone-400 italic' }, '暂无清单项')
+    ]);
+  },
+
+  backup_plan: (data) => {
+    return el('div', {}, [
+      el('h4', { class: 'font-bold mb-2' }, data.title || '备选方案'),
+      el('div', { class: 'text-sm bg-stone-50 p-2 rounded whitespace-pre-wrap' }, data.content || '暂无内容')
+    ]);
+  },
+
   secret_note: (data) => {
     const content = el('div', { class: 'hidden p-4 bg-rose-50 rounded text-rose-800 mt-2 whitespace-pre-wrap' }, data.content || '');
     const cover = el('div', { class: 'secret-note-cover', onclick: () => {
@@ -1911,7 +1930,8 @@ function openAddBlockModal() {
           else if (selectedType === 'tiny_goals') initData = { title: '本周目标', items: [{ text: '目标1', done: false }] };
           else if (selectedType === 'visit_day_list') initData = { date: new Date().toISOString().split('T')[0], plan: '计划...' };
           else if (selectedType === 'secret_note') initData = { cover: '点我展开', content: '写点悄悄话...' };
-              else if (selectedType === 'outfit_card') initData = { date: new Date().toISOString().split('T')[0], tags: 'OOTD', images: [] };
+              else if (selectedType === 'outfit_card') initData = { date: new Date().toISOString().split('T')[0], tags: 'OOTD', images: [], comments: [] };
+              else if (selectedType === 'memory_card') initData = { title: '', date: new Date().toISOString().split('T')[0], content: '', image: '', comments: [] };
               else if (selectedType === 'photo_album') initData = { title: '我的相册', photos: [], description: '' };
               else if (selectedType === 'timetable') initData = { title: '我的课表', courses: [] };
           else if (selectedType === 'decision_tool') initData = { question: '今天谁洗碗？', options: '我, 你' };
@@ -2086,6 +2106,8 @@ async function moveBlock(blockId, direction) {
     originalDisabled = moveBtn.disabled;
     moveBtn.classList.add('loading');
     moveBtn.disabled = true;
+    moveBtn.style.opacity = '0.6';
+    moveBtn.style.cursor = 'wait';
     moveBtn.innerHTML = '<span class="loading-spinner"></span>';
   }
   
@@ -2098,6 +2120,9 @@ async function moveBlock(blockId, direction) {
     // 更新两个块的order_index
     await api.updateBlockOrder(currentBlock.id, targetBlock.order_index);
     await api.updateBlockOrder(targetBlock.id, tempOrder);
+    
+    // 延迟一下让用户看到加载动画
+    await new Promise(resolve => setTimeout(resolve, 200));
     
     // 刷新数据并重新渲染
     if (state.isDemo) {
@@ -2116,6 +2141,8 @@ async function moveBlock(blockId, direction) {
     if (moveBtn) {
       moveBtn.classList.remove('loading');
       moveBtn.disabled = originalDisabled;
+      moveBtn.style.opacity = '';
+      moveBtn.style.cursor = '';
       moveBtn.innerHTML = originalText;
     }
   }
